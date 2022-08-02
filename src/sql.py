@@ -18,6 +18,9 @@ class SQLDDLAction(str, Enum):
     DROP = "DROP"
     ADDCONSTRAINT = "ADDCONSTRAINT"
     DROPCONSTRAINT = "DROPCONSTRAINT"
+    ADDCOLUMN = "ADDCOLUMN"
+    MODIFYCOLUMN = "MODIFYCOLUMN"
+    DROPCOLUMN = "DROPCOLUMN"
 
 class SQLDMLAction(str, Enum):
     """
@@ -50,7 +53,9 @@ def iscolumnname(token: Token):
         and isinstance(token.parent, Identifier)
         and (
             isinstance(token.parent.parent, (Parenthesis, IdentifierList)) 
-            or (isinstance(token.parent.parent, Statement) and isdatatypefollowing(token.parent))
+            or (isinstance(token.parent.parent, Statement) 
+                and (isdatatypefollowing(token.parent) or iskeywordpreceding(token.parent, "COLUMN"))
+            )
         )
     )
 
@@ -59,8 +64,15 @@ def isdatatypefollowing(token: Token):
     idx = statement.token_index(token)
     
     nextidx, tkn = statement.token_next(idx=idx)
-    # next = statement.token_next_by(token.parent)
     return isinteger(tkn)
+
+def iskeywordpreceding(token: Token, value: str):
+    statement: Statement = token.parent
+    idx = statement.token_index(token)
+    
+    tkn: Token
+    previdx, tkn = statement.token_prev(idx=idx)
+    return tkn.is_keyword and tkn.normalized == value
 
 
 def isvarchar(token: Token):
@@ -190,12 +202,36 @@ class SQLEntityFactory:
     """
 
     @classmethod
-    def alter_sqltableaddcolumn(cls, sql: Statement):
-        pass
+    def map_sqltable(cls, sql: Statement, tableaction: SQLDDLAction, columnaction: SQLDDLAction):
+        tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
+        columnnames = cls.getnamesfrom(iscolumnname, sql)
+
+        types = cls.gettypesfrom(iscolumntype, sql)
+        if not types:
+            types = [(None, None)] * len(columnnames)
+
+        zipped = list(zip(columnnames, types))
+
+        columns = list(map(
+                lambda column: SQLColumn(name=column[0], action=columnaction, type=column[1][0], size=column[1][1], constraints=[]),
+                zipped
+            )
+        )
+        
+        return SQLTable(name=tablename, action=tableaction, columns=columns)
 
     @classmethod
-    def alter_sqltablemodify(cls, sql: Statement):
-        pass
+    def alter_sqltableaddcolumn(cls, sql: Statement):
+        return cls.map_sqltable(sql, SQLDDLAction.ALTER, SQLDDLAction.ADDCOLUMN)
+        
+    @classmethod
+    def alter_sqltabledropcolumn(cls, sql: Statement):
+        return cls.map_sqltable(sql, SQLDDLAction.ALTER, SQLDDLAction.DROPCOLUMN)
+
+
+    @classmethod
+    def alter_sqltablemodifycolumn(cls, sql: Statement):
+        return cls.map_sqltable(sql, SQLDDLAction.ALTER, SQLDDLAction.MODIFYCOLUMN)
 
     """
     Constraints
@@ -203,10 +239,9 @@ class SQLEntityFactory:
 
     @classmethod
     def alter_sqltablemodifynotnull(cls, sql: Statement):
-        # tablename, columnname, *_ = cls.getnamesfrom(sql)
         tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
         columnnames = cls.getnamesfrom(iscolumnname, sql)
-        # types = cls.gettypesfrom(sql)
+
         types = cls.gettypesfrom(iscolumntype, sql)
 
         zipped = list(zip(columnnames, types))
@@ -219,7 +254,7 @@ class SQLEntityFactory:
 
         # column = SQLColumn(name=columnname, action=SQLDDLAction.ADDCONSTRAINT, type=types[0], size=0, constraints=[SQLConstraintNotNull('notnull')])
 
-        return SQLTable(name=tablename, action=SQLDDLAction.ADDCONSTRAINT, columns=[columns])
+        return SQLTable(name=tablename, action=SQLDDLAction.ADDCONSTRAINT, columns=columns)
 
 
     @classmethod
@@ -253,11 +288,12 @@ SQLProcessor = {
     "CREATEDATABASE": SQLEntityFactory.create_sqldatabase,
     "DROPDATABASE": SQLEntityFactory.drop_sqldatabase,
     "CREATETABLE": SQLEntityFactory.create_sqltable,
-    "ALTERTABLEMODIFY": SQLEntityFactory.alter_sqltablemodify,
+    "ALTERTABLEMODIFYCOLUMN": SQLEntityFactory.alter_sqltablemodifycolumn,
     "ALTERTABLEMODIFYNOTNULL": SQLEntityFactory.alter_sqltablemodifynotnull,
     "ALTERTABLEADD": SQLEntityFactory.alter_sqltableaddcolumn,
     "ALTERTABLEADDCONSTRAINTUNIQUE": SQLEntityFactory.alter_sqltableaddconstraintunique,
     "ALTERTABLEDROPCONSTRAINT": SQLEntityFactory.alter_sqltabledropconstraint,
+    "ALTERTABLEDROPCOLUMN": SQLEntityFactory.alter_sqltabledropcolumn,
     "DROPTABLE": SQLEntityFactory.drop_sqltable,
     # "SELECT": func,
     # "INSERT": func,

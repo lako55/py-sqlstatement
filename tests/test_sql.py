@@ -14,8 +14,9 @@ class SampleSQL:
                     City varchar(255)
                 );"""
 
-    ALTERTABLE = """ALTER TABLE Persons
-                    ADD DateOfBirth date;"""
+    ALTERTABLEADD = "ALTER TABLE Persons ADD DateOfBirth date;"
+    ALTERTABLEMODIFY = "ALTER TABLE Persons MODIFY COLUMN DateOfBirth date;"
+    ALTERTABLEDROP = "ALTER TABLE Persons DROP COLUMN DateOfBirth;"
 
     ADDUNIQUE = "ALTER TABLE Persons ADD CONSTRAINT UC_Person UNIQUE (ID,LastName);"
     DROPUNIQUE = "ALTER TABLE Persons DROP CONSTRAINT UC_Person;"
@@ -77,3 +78,39 @@ class TestSQLParse(unittest.TestCase):
         self.assertIsInstance(sqlentity, SQLTable)
         self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
         self.assertEqual(sqlentity.action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
+
+    def test_altertableadd(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEADD)
+
+        self.assertIsInstance(sqlentity, SQLTable)
+        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
+        self.assertEqual(sqlentity.action, SQLDDLAction.ALTER, 'Table action check failed.')
+
+        self.assertEqual(sqlentity.columns[0].name, 'DateOfBirth', 'Column name check failed.')
+        self.assertEqual(sqlentity.columns[0].type, 'date', 'Column type check failed.')
+        self.assertEqual(sqlentity.columns[0].action, SQLDDLAction.ADDCOLUMN, 'Column action check failed.')
+        # self.assertIsInstance(sqlentity.columns[0].constraints[0], SQLConstraintUnique)
+        # self.assertEqual(sqlentity.columns[0].constraints[0].name, 'UC_Person', 'Constraint name check failed.')
+        # self.assertEqual(sqlentity.columns[0].constraints[0].action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
+
+    def test_altertablemodify(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEMODIFY)
+
+        self.assertIsInstance(sqlentity, SQLTable)
+        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
+        self.assertEqual(sqlentity.action, SQLDDLAction.ALTER, 'Table action check failed.')
+
+        self.assertEqual(sqlentity.columns[0].name, 'DateOfBirth', 'Column name check failed.')
+        self.assertEqual(sqlentity.columns[0].type, 'date', 'Column type check failed.')
+        self.assertEqual(sqlentity.columns[0].action, SQLDDLAction.MODIFYCOLUMN, 'Column action check failed.')
+
+    def test_altertabledrop(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEDROP)
+
+        self.assertIsInstance(sqlentity, SQLTable)
+        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
+        self.assertEqual(sqlentity.action, SQLDDLAction.ALTER, 'Table action check failed.')
+
+        self.assertEqual(sqlentity.columns[0].name, 'DateOfBirth', 'Column name check failed.')
+        # self.assertEqual(sqlentity.columns[0].type, 'date', 'Column type check failed.')
+        self.assertEqual(sqlentity.columns[0].action, SQLDDLAction.DROPCOLUMN, 'Column action check failed.')

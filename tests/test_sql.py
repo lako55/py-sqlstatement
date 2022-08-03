@@ -66,6 +66,12 @@ class SampleSQL:
         ("LastName", None, None, SQLDDLAction.ADDCONSTRAINT, [(SQLConstraintUnique, "UC_Person", SQLDDLAction.ADDCONSTRAINT)])
     ]
 
+    ADDPRIMARYKEY = "ALTER TABLE Persons ADD CONSTRAINT PK_Person PRIMARY KEY (ID,LastName);"
+    ADDPRIMARYKEYEXPECTED = [
+        ("ID", None, None, SQLDDLAction.ADDCONSTRAINT, [(SQLConstraintPrimaryKey, "PK_Person", SQLDDLAction.ADDCONSTRAINT)]),
+        ("LastName", None, None, SQLDDLAction.ADDCONSTRAINT, [(SQLConstraintPrimaryKey, "PK_Person", SQLDDLAction.ADDCONSTRAINT)])
+    ]
+
     DROPCONSTRAINT = "ALTER TABLE Persons DROP CONSTRAINT UC_Person;"
     DROPCONSTRAINTEXPECTED = [
         ("*", None, None, SQLDDLAction.DROPCONSTRAINT, [(SQLConstraint, "UC_Person", SQLDDLAction.DROPCONSTRAINT)])        
@@ -102,11 +108,17 @@ class TestSQLParse(unittest.TestCase):
         self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.CREATE)
         self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.CREATETABLECONSTRAINTSEXPECTED)
 
-    def test_parseaddconstraint(self):
+    def test_parseaddconstraintunique(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ADDUNIQUE)
 
         self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ADDCONSTRAINT)
         self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ADDUNIQUEEXPECTED)
+
+    def test_parseaddconstraintprimarykey(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ADDPRIMARYKEY)
+
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ADDCONSTRAINT)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ADDPRIMARYKEYEXPECTED)
                 
     def test_parsedropconstraint(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.DROPCONSTRAINT)

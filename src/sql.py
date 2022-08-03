@@ -118,7 +118,7 @@ class SQLEntityFactory:
         funcname = funcname.upper()
         if funcname.startswith("CREATETABLE"):
             funcname = "CREATETABLE"
-        elif funcname.startswith("ALTERTABLEADD") and funcname != "ALTERTABLEADDCONSTRAINTUNIQUE":
+        elif funcname.startswith("ALTERTABLEADD") and not funcname in ["ALTERTABLEADDCONSTRAINTUNIQUE", "ALTERTABLEADDCONSTRAINTPRIMARYKEY"]:
             funcname = "ALTERTABLEADD"
 
         return funcname
@@ -305,13 +305,22 @@ class SQLEntityFactory:
         )        
 
     @classmethod
-    def alter_sqltableaddconstraintunique(cls, sql: Statement):
+    def alter_sqltableaddconstraint(cls, sql: Statement, constrainttype: type):
 
         tablename, constraintname = cls.getnamesfrom(is_db_or_tablename, sql)
         columnnames = cls.getnamesfrom(iscolumnname, sql)
 
-        columns = cls.map_sqltableconstraint(columnnames, SQLDDLAction.ADDCONSTRAINT, SQLConstraintUnique(name=constraintname, action=SQLDDLAction.ADDCONSTRAINT))
+        columns = cls.map_sqltableconstraint(columnnames, SQLDDLAction.ADDCONSTRAINT, constrainttype(name=constraintname, action=SQLDDLAction.ADDCONSTRAINT))
         return SQLTable(name=tablename, action=SQLDDLAction.ADDCONSTRAINT, columns=columns)
+
+    @classmethod
+    def alter_sqltableaddconstraintunique(cls, sql: Statement):
+
+        return cls.alter_sqltableaddconstraint(sql, SQLConstraintUnique)
+
+    @classmethod
+    def alter_sqltableaddconstraintprimarykey(cls, sql: Statement):        
+        return cls.alter_sqltableaddconstraint(sql, SQLConstraintPrimaryKey)
     
     @classmethod
     def alter_sqltabledropconstraint(cls, sql: Statement):
@@ -330,6 +339,7 @@ SQLProcessor = {
     "ALTERTABLEMODIFYNOTNULL": SQLEntityFactory.alter_sqltablemodifynotnull,
     "ALTERTABLEADD": SQLEntityFactory.alter_sqltableaddcolumn,
     "ALTERTABLEADDCONSTRAINTUNIQUE": SQLEntityFactory.alter_sqltableaddconstraintunique,
+    "ALTERTABLEADDCONSTRAINTPRIMARYKEY": SQLEntityFactory.alter_sqltableaddconstraintprimarykey,
     "ALTERTABLEDROPCONSTRAINT": SQLEntityFactory.alter_sqltabledropconstraint,
     "ALTERTABLEDROPCOLUMN": SQLEntityFactory.alter_sqltabledropcolumn,
     "DROPTABLE": SQLEntityFactory.drop_sqltable,

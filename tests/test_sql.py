@@ -1,5 +1,7 @@
+from re import S
 import unittest
-from src.sql import SQLConstraintUnique, SQLEntity, SQLEntityFactory
+from typing import List, Tuple
+from src.sql import SQLColumn, SQLConstraint, SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLEntity, SQLEntityFactory
 from src.sql import SQLDatabase, SQLTable, SQLDDLAction
 
 class SampleSQL:
@@ -14,14 +16,65 @@ class SampleSQL:
                     City varchar(255)
                 );"""
 
+    CREATETABLEEXPECTED = [
+        ("PersonID", "int", None, SQLDDLAction.CREATE, []),
+        ("LastName", "varchar", "255", SQLDDLAction.CREATE, []),
+        ("FirstName", "varchar", "255", SQLDDLAction.CREATE, []),
+        ("Address", "varchar", "255", SQLDDLAction.CREATE, []),
+        ("City", "varchar", "255", SQLDDLAction.CREATE, [])
+    ]
+
+    CREATETABLECONSTRAINTS = """CREATE TABLE Persons (
+                    PersonID int PRIMARY KEY,
+                    LastName varchar(255) NOT NULL,
+                    FirstName varchar(255) UNIQUE NOT NULL,
+                    Address varchar(255),
+                    City varchar(255)
+                );"""
+    CREATETABLECONSTRAINTSEXPECTED = [
+        ("PersonID", "int", None, SQLDDLAction.CREATE, [(SQLConstraintPrimaryKey, "primarykey", SQLDDLAction.ADDCONSTRAINT)]),
+        ("LastName", "varchar", "255", SQLDDLAction.CREATE, [(SQLConstraintNotNull, "notnull", SQLDDLAction.ADDCONSTRAINT)]),
+        ("FirstName", "varchar", "255", SQLDDLAction.CREATE, [(SQLConstraintUnique, "unique", SQLDDLAction.ADDCONSTRAINT), (SQLConstraintNotNull, "notnull", SQLDDLAction.ADDCONSTRAINT)]),
+        ("Address", "varchar", "255", SQLDDLAction.CREATE, []),
+        ("City", "varchar", "255", SQLDDLAction.CREATE, [])
+    ]
+
     ALTERTABLEADD = "ALTER TABLE Persons ADD DateOfBirth date;"
+    ALTERTABLEADDEXPECTED = [
+        ("DateOfBirth", "date", None, SQLDDLAction.ADDCOLUMN, [])
+    ]
+
+    ALTERTABLEADDWCONSTRAINT = "ALTER TABLE Persons ADD DateOfBirth date NOT NULL UNIQUE, customer_name varchar(50) NOT NULL;"
+    ALTERTABLEADDWCONSTRAINTEXPECTED = [
+        ("DateOfBirth", "date", None, SQLDDLAction.ADDCOLUMN, [(SQLConstraintNotNull, "notnull", SQLDDLAction.ADDCONSTRAINT), (SQLConstraintUnique, "unique", SQLDDLAction.ADDCONSTRAINT)]),
+        ("customer_name", "varchar", "50", SQLDDLAction.ADDCOLUMN, [(SQLConstraintNotNull, "notnull", SQLDDLAction.ADDCONSTRAINT)])
+    ]
+
     ALTERTABLEMODIFY = "ALTER TABLE Persons MODIFY COLUMN DateOfBirth date;"
+    ALTERTABLEMODIFYEXPECTED = [
+        ("DateOfBirth", "date", None, SQLDDLAction.MODIFYCOLUMN, [])
+    ]
+
     ALTERTABLEDROP = "ALTER TABLE Persons DROP COLUMN DateOfBirth;"
+    ALTERTABLEDROPEXPECTED = [
+        ("DateOfBirth", None, None, SQLDDLAction.DROPCOLUMN, [])
+    ]
 
     ADDUNIQUE = "ALTER TABLE Persons ADD CONSTRAINT UC_Person UNIQUE (ID,LastName);"
-    DROPUNIQUE = "ALTER TABLE Persons DROP CONSTRAINT UC_Person;"
+    ADDUNIQUEEXPECTED = [
+        ("ID", None, None, SQLDDLAction.ADDCONSTRAINT, [(SQLConstraintUnique, "UC_Person", SQLDDLAction.ADDCONSTRAINT)]),
+        ("LastName", None, None, SQLDDLAction.ADDCONSTRAINT, [(SQLConstraintUnique, "UC_Person", SQLDDLAction.ADDCONSTRAINT)])
+    ]
+
+    DROPCONSTRAINT = "ALTER TABLE Persons DROP CONSTRAINT UC_Person;"
+    DROPCONSTRAINTEXPECTED = [
+        ("*", None, None, SQLDDLAction.DROPCONSTRAINT, [(SQLConstraint, "UC_Person", SQLDDLAction.DROPCONSTRAINT)])        
+    ]
 
     ADDNOTNULL = "ALTER TABLE Persons MODIFY Age int NOT NULL;"
+    ADDNOTNULLEXPECTED = [
+        ("Age", "int", None, SQLDDLAction.ADDCONSTRAINT, [(SQLConstraintNotNull, "notnull", SQLDDLAction.ADDCONSTRAINT)])
+    ]
 
     DROPTABLE = "DROP TABLE Persons"
 
@@ -30,87 +83,86 @@ class TestSQLParse(unittest.TestCase):
     def test_parsecreatedb(self):
         sqlentity: SQLDatabase = SQLEntityFactory.create_entity(SampleSQL.CREATEDB)
 
-        self.assertIsInstance(sqlentity, SQLDatabase)
-        self.assertEqual(sqlentity.name, 'testDB', 'Database name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.CREATE, 'Action check failed.')
+        self.assert_entity(sqlentity, SQLDatabase, "testDB", SQLDDLAction.CREATE)
 
     def test_parsedropdb(self):
         sqlentity: SQLDatabase = SQLEntityFactory.create_entity(SampleSQL.DROPDB)
 
-        self.assertIsInstance(sqlentity, SQLDatabase)
-        self.assertEqual(sqlentity.name, 'testDB', 'Database name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.DROP, 'Action check failed.')
+        self.assert_entity(sqlentity, SQLDatabase, "testDB", SQLDDLAction.DROP)          
 
     def test_parsecreatetable(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.CREATETABLE)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.CREATE, 'Action check failed.')
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.CREATE)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.CREATETABLEEXPECTED)
+
+    def test_parsecreatetableconstraints(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.CREATETABLECONSTRAINTS)
+
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.CREATE)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.CREATETABLECONSTRAINTSEXPECTED)
 
     def test_parseaddconstraint(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ADDUNIQUE)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
-        
-        self.assertEqual(sqlentity.columns[0].name, 'ID', 'Column name check failed.')
-        self.assertIsInstance(sqlentity.columns[0].constraints[0], SQLConstraintUnique)
-        self.assertEqual(sqlentity.columns[0].constraints[0].name, 'UC_Person', 'Constraint name check failed.')
-        self.assertEqual(sqlentity.columns[0].constraints[0].action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
-
-        self.assertEqual(sqlentity.columns[1].name, 'LastName', 'Column name check failed.')
-        self.assertIsInstance(sqlentity.columns[1].constraints[0], SQLConstraintUnique)
-        self.assertEqual(sqlentity.columns[1].constraints[0].name, 'UC_Person', 'Constraint name check failed.')
-        self.assertEqual(sqlentity.columns[1].constraints[0].action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
-
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ADDCONSTRAINT)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ADDUNIQUEEXPECTED)
+                
     def test_parsedropconstraint(self):
-        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.DROPUNIQUE)
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.DROPCONSTRAINT)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.DROPCONSTRAINT, 'Action check failed.')
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.DROPCONSTRAINT)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.DROPCONSTRAINTEXPECTED)
 
     def test_alteraddnotnull(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ADDNOTNULL)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ADDCONSTRAINT)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ADDNOTNULLEXPECTED)
 
     def test_altertableadd(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEADD)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.ALTER, 'Table action check failed.')
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ALTER)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ALTERTABLEADDEXPECTED)
 
-        self.assertEqual(sqlentity.columns[0].name, 'DateOfBirth', 'Column name check failed.')
-        self.assertEqual(sqlentity.columns[0].type, 'date', 'Column type check failed.')
-        self.assertEqual(sqlentity.columns[0].action, SQLDDLAction.ADDCOLUMN, 'Column action check failed.')
-        # self.assertIsInstance(sqlentity.columns[0].constraints[0], SQLConstraintUnique)
-        # self.assertEqual(sqlentity.columns[0].constraints[0].name, 'UC_Person', 'Constraint name check failed.')
-        # self.assertEqual(sqlentity.columns[0].constraints[0].action, SQLDDLAction.ADDCONSTRAINT, 'Action check failed.')
+    def test_altertableaddwconstraint(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEADDWCONSTRAINT)
 
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ALTER)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ALTERTABLEADDWCONSTRAINTEXPECTED)
+        
     def test_altertablemodify(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEMODIFY)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.ALTER, 'Table action check failed.')
-
-        self.assertEqual(sqlentity.columns[0].name, 'DateOfBirth', 'Column name check failed.')
-        self.assertEqual(sqlentity.columns[0].type, 'date', 'Column type check failed.')
-        self.assertEqual(sqlentity.columns[0].action, SQLDDLAction.MODIFYCOLUMN, 'Column action check failed.')
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ALTER)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ALTERTABLEMODIFYEXPECTED)
 
     def test_altertabledrop(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ALTERTABLEDROP)
 
-        self.assertIsInstance(sqlentity, SQLTable)
-        self.assertEqual(sqlentity.name, 'Persons', 'Table name check failed.')
-        self.assertEqual(sqlentity.action, SQLDDLAction.ALTER, 'Table action check failed.')
+        self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ALTER)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ALTERTABLEDROPEXPECTED)
 
-        self.assertEqual(sqlentity.columns[0].name, 'DateOfBirth', 'Column name check failed.')
-        # self.assertEqual(sqlentity.columns[0].type, 'date', 'Column type check failed.')
-        self.assertEqual(sqlentity.columns[0].action, SQLDDLAction.DROPCOLUMN, 'Column action check failed.')
+    def assert_entity(self, sqlentity, type:type, name: str, action: SQLDDLAction):
+        self.assertIsInstance(sqlentity, type)
+        self.assertEqual(sqlentity.name, name, 'Name check failed.')
+        self.assertEqual(sqlentity.action, action, 'Entity action check failed.')
+
+    def assert_column(self, actual: SQLColumn, expected: Tuple):
+        self.assertEqual(actual.name, expected[0], 'Column name check failed.')
+        self.assertEqual(actual.type, expected[1], 'Column type check failed.')
+        self.assertEqual(actual.size, expected[2], 'Column size check failed.')
+        self.assertEqual(actual.action, expected[3], 'Column action check failed.')
+
+        self.assert_lists(self.assert_constraint, actual.constraints, expected[4])
+
+    def assert_lists(self, assertfunc, actual_result: List, expected_result: List):
+        zipped = zip(actual_result, expected_result)
+        for actual, expected in zipped:
+            assertfunc(actual, expected)
+
+    def assert_constraint(self, actual, expected: Tuple):
+        self.assertIsInstance(actual, expected[0])
+        self.assertEqual(actual.name, expected[1], 'Constraint name check failed.')
+        self.assertEqual(actual.action, expected[2], 'Action check failed.')

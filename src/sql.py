@@ -2,6 +2,7 @@ from ast import keyword
 from functools import reduce
 from collections import namedtuple
 from enum import Enum
+# from tokenize import Name
 from typing import List
 from sqlparse import parse
 from sqlparse.sql import Statement, Token, TokenList, Identifier, IdentifierList, Function, Parenthesis
@@ -38,6 +39,7 @@ SQLTable = namedtuple('SQLTable', SQLEntity._fields + ('columns',))
 SQLColumn = namedtuple('SQLColumn', SQLEntity._fields + ('type', 'size', 'constraints',), defaults=(None, None))
 # SQLConstraint = namedtuple('SQLConstraint', SQLEntity._fields + ('action',), defaults=[SQLDDLAction.ADD])
 SQLConstraint = namedtuple('SQLConstraint', SQLEntity._fields)
+SQLConstraintPrimaryKey = namedtuple('SQLConstraintPrimaryKey', SQLConstraint._fields)
 SQLConstraintUnique = namedtuple('SQLConstraintUnique', SQLConstraint._fields)
 SQLConstraintNotNull = namedtuple('SQLConstraintNotNull', SQLConstraint._fields)
 SQLConstraintDefault = namedtuple('SQLConstraintDefault', SQLConstraint._fields + ('value',))
@@ -112,10 +114,21 @@ class SQLEntityFactory:
     #     self._action = self._sql.get_type()
 
     @classmethod
+    def normalize_funcname(cls, funcname: str):
+        funcname = funcname.upper()
+        if funcname.startswith("CREATETABLE"):
+            funcname = "CREATETABLE"
+        elif funcname.startswith("ALTERTABLEADD") and funcname != "ALTERTABLEADDCONSTRAINTUNIQUE":
+            funcname = "ALTERTABLEADD"
+
+        return funcname
+
+    @classmethod
     def create_entity(cls, sql: str):
         statement: Statement = parse(sql)[0]
         keywords = list(map(lambda token: token.value, filter(lambda token: token.is_keyword, statement.tokens)))
-        funcname = "".join(keywords).replace(' ', '').upper()
+        funcname = cls.normalize_funcname("".join(keywords).replace(' ', '').upper())
+
         return SQLProcessor[funcname](statement)
 
     @classmethod
@@ -126,11 +139,6 @@ class SQLEntityFactory:
                 list(filter(func, sql.flatten()))
             )
         )
-        # return list(
-        #     map(lambda token: token.value,
-        #         filter(lambda token: token.ttype == TType.Name, sql.flatten())
-        #     )
-        # )
 
     @classmethod
     def gettypesfrom(cls, func, sql: Statement):
@@ -140,22 +148,48 @@ class SQLEntityFactory:
                 list(filter(func, sql.flatten()))
             )
         )
-        # return list(
-        #     map(lambda token: token.value if isinteger(token) else token.parent.parent.value,
-        #         list(filter(func, sql.flatten()))
-        #     )
-        # )
-    # @classmethod
-    # def gettypesfrom(cls, sql: Statement):
-    #     return list(
-    #         map(lambda token: token.value,
-    #             filter(lambda token: token.ttype == TType.Name.Builtin, sql.flatten())
-    #         )
-    #     )
+        
+    @classmethod
+    def map_constraints(cls, colname: str, sql: Statement):
 
-    # @property
-    # def isddl(self) -> bool:
-    #     return self._sql.get_type() in SQLDDLAction
+        tokens: List = list(sql.flatten())
+        
+        def isconstraint(token: Token):
+            if token.normalized in ["PRIMARY", "NOT NULL", "UNIQUE"]:
+                idx = tokens.index(token)
+                subtokens = tokens[:idx-1]
+                tkn: Token
+
+                for tkn in reversed(subtokens):
+                    if iscolumnname(tkn):
+                        # tkn = i
+                        break
+                # idx = sql.token_index(token)
+    
+                # tkn: Token
+                # previdx, tkn = sql.token_prev(idx=idx)
+                
+                # while not isinstance(tkn, Name):
+                #     idx = previdx
+                #     previdx, tkn = sql.token_prev(idx=idx)
+
+                return tkn.value == colname
+
+            return False       
+
+        def mapconstraint(token: Token):
+            match token.normalized:
+                case "UNIQUE":
+                    return SQLConstraintUnique(name="unique", action=SQLDDLAction.ADDCONSTRAINT)
+                case "PRIMARY":
+                    return SQLConstraintPrimaryKey(name="primarykey", action=SQLDDLAction.ADDCONSTRAINT)
+                case "NOT NULL":
+                    return SQLConstraintNotNull(name="notnull", action=SQLDDLAction.ADDCONSTRAINT)
+                case _:
+                    raise Exception("Unsupported constraint")
+
+        constraints = list(map(mapconstraint, filter(isconstraint, tokens)))
+        return constraints
 
     """
     Create/drop DB
@@ -172,33 +206,7 @@ class SQLEntityFactory:
         return SQLDatabase(name=dbname, action=SQLDDLAction.DROP)
 
     """
-    Create/drop table
-    """
-
-    @classmethod
-    def create_sqltable(cls, sql: Statement):
-        tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
-        columnnames = cls.getnamesfrom(iscolumnname, sql)
-        types = cls.gettypesfrom(iscolumntype, sql)
-
-        zipped = list(zip(columnnames, types))
-
-        columns = list(map(
-                lambda column: SQLColumn(name=column[0], action=SQLDDLAction.CREATE, type=column[1][0], size=column[1][1], constraints=[]),
-                zipped
-            )
-        )
-
-        return SQLTable(name=tablename, action=SQLDDLAction.CREATE, columns=columns)
-
-    @classmethod
-    def drop_sqltable(cls, sql: Statement):
-        tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
-        
-        return SQLTable(name=tablename, action=SQLDDLAction.DROP, columns=[])
-
-    """
-    Add/modify column in table
+    Extraction and mapping of the sql data to the SQLStatement data structure
     """
 
     @classmethod
@@ -213,12 +221,44 @@ class SQLEntityFactory:
         zipped = list(zip(columnnames, types))
 
         columns = list(map(
-                lambda column: SQLColumn(name=column[0], action=columnaction, type=column[1][0], size=column[1][1], constraints=[]),
+                lambda column: SQLColumn(name=column[0], action=columnaction, type=column[1][0], 
+                    size=column[1][1], constraints=cls.map_constraints(column[0], sql)),
                 zipped
             )
         )
         
         return SQLTable(name=tablename, action=tableaction, columns=columns)
+
+    """
+    Create/drop table
+    """
+
+    @classmethod
+    def create_sqltable(cls, sql: Statement):
+        return cls.map_sqltable(sql, SQLDDLAction.CREATE, SQLDDLAction.CREATE)
+        # tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
+        # columnnames = cls.getnamesfrom(iscolumnname, sql)
+        # types = cls.gettypesfrom(iscolumntype, sql)
+
+        # zipped = list(zip(columnnames, types))
+
+        # columns = list(map(
+        #         lambda column: SQLColumn(name=column[0], action=SQLDDLAction.CREATE, type=column[1][0], size=column[1][1], constraints=[]),
+        #         zipped
+        #     )
+        # )
+
+        # return SQLTable(name=tablename, action=SQLDDLAction.CREATE, columns=columns)
+
+    @classmethod
+    def drop_sqltable(cls, sql: Statement):
+        tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
+        
+        return SQLTable(name=tablename, action=SQLDDLAction.DROP, columns=[])
+
+    """
+    Add/modify column in table
+    """    
 
     @classmethod
     def alter_sqltableaddcolumn(cls, sql: Statement):
@@ -250,9 +290,7 @@ class SQLEntityFactory:
                 lambda column: SQLColumn(name=column[0], action=SQLDDLAction.ADDCONSTRAINT, type=column[1][0], size=column[1][1], constraints=[SQLConstraintNotNull(name='notnull', action=SQLDDLAction.ADDCONSTRAINT)]),
                 zipped
             )
-        )
-
-        # column = SQLColumn(name=columnname, action=SQLDDLAction.ADDCONSTRAINT, type=types[0], size=0, constraints=[SQLConstraintNotNull('notnull')])
+        )        
 
         return SQLTable(name=tablename, action=SQLDDLAction.ADDCONSTRAINT, columns=columns)
 
@@ -279,7 +317,7 @@ class SQLEntityFactory:
     def alter_sqltabledropconstraint(cls, sql: Statement):
 
         tablename, constraintname = cls.getnamesfrom(is_db_or_tablename, sql)
-        columns = cls.map_sqltableconstraint(['*'], SQLDDLAction.DROPCONSTRAINT, SQLConstraintUnique(name=constraintname, action=SQLDDLAction.DROPCONSTRAINT))
+        columns = cls.map_sqltableconstraint(['*'], SQLDDLAction.DROPCONSTRAINT, SQLConstraint(name=constraintname, action=SQLDDLAction.DROPCONSTRAINT))
 
         return SQLTable(name=tablename, action=SQLDDLAction.DROPCONSTRAINT, columns=columns)
 

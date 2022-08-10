@@ -1,7 +1,7 @@
 from re import S
 import unittest
 from typing import List, Tuple
-from src.sql import SQLColumn, SQLConstraint, SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLEntity, SQLEntityFactory
+from src.sql import SQLColumn, SQLConstraint, SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLDMLAction, SQLEntity, SQLEntityFactory
 from src.sql import SQLDatabase, SQLTable, SQLDDLAction
 
 class SampleSQL:
@@ -84,6 +84,37 @@ class SampleSQL:
 
     DROPTABLE = "DROP TABLE Persons"
 
+    INSERTINTOWCOLS = "INSERT INTO Customers (CustomerName, ContactName, Address, City, PostalCode, Country) VALUES ('Cardinal', 'Tom B. Erichsen', 'Skagen 21', 'Stavanger', 4006, 'Norway');"
+    INSERTINTOWCOLSEXPECTED = [
+        ("CustomerName", "Cardinal", SQLDMLAction.INSERT),
+        ("ContactName", "Tom B. Erichsen", SQLDMLAction.INSERT),
+        ("Address", "Skagen 21", SQLDMLAction.INSERT),
+        ("City", "Stavanger", SQLDMLAction.INSERT),
+        ("PostalCode", "4006", SQLDMLAction.INSERT),
+        ("Country", "Norway", SQLDMLAction.INSERT)
+    ]
+
+    INSERTINTONOCOLS = "INSERT INTO Customers VALUES ('Cardinal', 'Tom B. Erichsen', 'Skagen 21', 'Stavanger', 4006, 'Norway');"
+    INSERTINTONOCOLSEXPECTED = [
+        (None, "Cardinal", SQLDMLAction.INSERT),
+        (None, "Tom B. Erichsen", SQLDMLAction.INSERT),
+        (None, "Skagen 21", SQLDMLAction.INSERT),
+        (None, "Stavanger", SQLDMLAction.INSERT),
+        (None, "4006", SQLDMLAction.INSERT),
+        (None, "Norway", SQLDMLAction.INSERT)
+    ]
+
+    UPDATEONE = "UPDATE Customers SET CustomerName='Cardinal' WHERE Country='Mexico';"
+    UPDATEONEEXPECTED = [
+        ("CustomerName", "Cardinal", SQLDMLAction.UPDATE),        
+    ]
+
+    UPDATEMULTI = "UPDATE Customers SET ContactName='Juan', CustomerName='Cardinal' WHERE Country='Mexico';"
+    UPDATEMULTIEXPECTED = [
+        ("ContactName", "Juan", SQLDMLAction.UPDATE),
+        ("CustomerName", "Cardinal", SQLDMLAction.UPDATE),        
+    ]
+
 class TestSQLParse(unittest.TestCase):
 
     def test_parsecreatedb(self):
@@ -126,7 +157,7 @@ class TestSQLParse(unittest.TestCase):
         self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.DROPCONSTRAINT)
         self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.DROPCONSTRAINTEXPECTED)
 
-    def test_alteraddnotnull(self):
+    def test_alteraddconstraintnotnull(self):
         sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.ADDNOTNULL)
 
         self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ADDCONSTRAINT)
@@ -156,6 +187,30 @@ class TestSQLParse(unittest.TestCase):
         self.assert_entity(sqlentity, SQLTable, "Persons", SQLDDLAction.ALTER)
         self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.ALTERTABLEDROPEXPECTED)
 
+    def test_insertintowcols(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.INSERTINTOWCOLS)
+
+        self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.INSERT)
+        self.assert_lists(self.assert_columndata, sqlentity.columns, SampleSQL.INSERTINTOWCOLSEXPECTED)
+
+    def test_insertintonocols(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.INSERTINTONOCOLS)
+
+        self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.INSERT)
+        self.assert_lists(self.assert_columndata, sqlentity.columns, SampleSQL.INSERTINTONOCOLSEXPECTED)
+
+    def test_updateone(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.UPDATEONE)
+
+        self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.UPDATE)
+        self.assert_lists(self.assert_columndata, sqlentity.columns, SampleSQL.UPDATEONEEXPECTED)
+
+    def test_updatemulti(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.UPDATEMULTI)
+
+        self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.UPDATE)
+        self.assert_lists(self.assert_columndata, sqlentity.columns, SampleSQL.UPDATEMULTIEXPECTED)
+
     def assert_entity(self, sqlentity, type:type, name: str, action: SQLDDLAction):
         self.assertIsInstance(sqlentity, type)
         self.assertEqual(sqlentity.name, name, 'Name check failed.')
@@ -168,6 +223,11 @@ class TestSQLParse(unittest.TestCase):
         self.assertEqual(actual.action, expected[3], 'Column action check failed.')
 
         self.assert_lists(self.assert_constraint, actual.constraints, expected[4])
+
+    def assert_columndata(self, actual: SQLColumn, expected: Tuple):
+        self.assertEqual(actual.name, expected[0], 'Column name check failed.')
+        self.assertEqual(actual.value, expected[1], 'Column value check failed.')        
+        self.assertEqual(actual.action, expected[2], 'Column action check failed.')
 
     def assert_lists(self, assertfunc, actual_result: List, expected_result: List):
         zipped = zip(actual_result, expected_result)

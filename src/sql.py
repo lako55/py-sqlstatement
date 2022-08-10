@@ -2,11 +2,9 @@ from ast import keyword
 from functools import reduce
 from collections import namedtuple
 from enum import Enum
-# from tokenize import Name
 from typing import List
 from sqlparse import parse
-from sqlparse.sql import Statement, Token, TokenList, Identifier, IdentifierList, Function, Parenthesis
-# from sqlparse.tokens import Name
+from sqlparse.sql import Statement, Token, TokenList, Identifier, IdentifierList, Function, Parenthesis, Comparison, Where
 import sqlparse.tokens as TType
 
 class SQLDDLAction(str, Enum):
@@ -32,29 +30,35 @@ class SQLDMLAction(str, Enum):
     INSERT = "INSERT"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
+    WHERE  = "WHERE"
 
 SQLEntity = namedtuple('SQLEntity', 'name action',)
 SQLDatabase = namedtuple('SQLDatabase', SQLEntity._fields)
 SQLTable = namedtuple('SQLTable', SQLEntity._fields + ('columns',))
-SQLColumn = namedtuple('SQLColumn', SQLEntity._fields + ('type', 'size', 'constraints',), defaults=(None, None))
-# SQLConstraint = namedtuple('SQLConstraint', SQLEntity._fields + ('action',), defaults=[SQLDDLAction.ADD])
+SQLColumn = namedtuple('SQLColumn', SQLEntity._fields + ('type', 'size', 'constraints', 'value'), defaults=(None, None, None))
+
 SQLConstraint = namedtuple('SQLConstraint', SQLEntity._fields)
 SQLConstraintPrimaryKey = namedtuple('SQLConstraintPrimaryKey', SQLConstraint._fields)
 SQLConstraintUnique = namedtuple('SQLConstraintUnique', SQLConstraint._fields)
 SQLConstraintNotNull = namedtuple('SQLConstraintNotNull', SQLConstraint._fields)
 SQLConstraintDefault = namedtuple('SQLConstraintDefault', SQLConstraint._fields + ('value',))
 
+SQLAnd = namedtuple('SQLAnd', 'filter',)
+SQLOr = namedtuple('SQLOr', 'filter',)
+
 def is_db_or_tablename(token: Token):
     return (token.ttype == TType.Name
         and isinstance(token.parent, Identifier)
-        and isinstance(token.parent.parent, Statement)
+        and (isinstance(token.parent.parent, Statement) 
+            or (isinstance(token.parent.parent, Function) and isinstance(token.parent.parent.parent, Statement))
+        )
     )
 
 def iscolumnname(token: Token):
     return (token.ttype == TType.Name
         and isinstance(token.parent, Identifier)
         and (
-            isinstance(token.parent.parent, (Parenthesis, IdentifierList)) 
+            isinstance(token.parent.parent, (Parenthesis, IdentifierList, Comparison)) 
             or (isinstance(token.parent.parent, Statement) 
                 and (isdatatypefollowing(token.parent) or iskeywordpreceding(token.parent, "COLUMN"))
             )
@@ -68,13 +72,32 @@ def isdatatypefollowing(token: Token):
     nextidx, tkn = statement.token_next(idx=idx)
     return isinteger(tkn)
 
+def findstatement(token: Token, lasttoken: Token):
+    if isinstance(token, (Statement)):
+        return (token, lasttoken)
+    else:
+        return findstatement(token.parent, token)
+
+def iskeyword(token: Token, value: str):
+    return token.is_keyword and token.normalized == value
+
 def iskeywordpreceding(token: Token, value: str):
-    statement: Statement = token.parent
-    idx = statement.token_index(token)
-    
+    # statement: Statement = token.parent
+    statement: Statement
     tkn: Token
-    previdx, tkn = statement.token_prev(idx=idx)
-    return tkn.is_keyword and tkn.normalized == value
+    statement, tkn = findstatement(token, token)
+
+    # t: type = globals()[value.capitalize()]
+    # if isinstance(tkn, t):
+    #     return True
+    # else:
+    if tkn.tokens and len(tkn.tokens) > 0 and iskeyword(tkn.tokens[0], value):
+        return True
+    else:
+        idx = statement.token_index(tkn)
+        
+        previdx, tkn = statement.token_prev(idx=idx)
+        return iskeyword(tkn, value)
 
 
 def isvarchar(token: Token):
@@ -99,9 +122,23 @@ def getcolumntype(token: Token):
 
     return result
 
-# def createsqlcolumn(column):
-#     name, type = column
-#     return SQLColumn(name=name, action=SQLDDLAction.CREATE, type=type, size=None, constraints=[])
+def isvaluein(token: Token, keyword: str):
+    return (token.ttype in (TType.String.Single, TType.Number.Integer)
+        and (isinstance(token.parent, (IdentifierList))
+            or (isinstance(token.parent, (Comparison)) and iskeywordpreceding(token.parent, keyword))
+        )
+    )
+
+def isdata(token: Token):
+    return isvaluein(token, "SET")
+
+def iswhere(token: Token):
+    return isvaluein(token, "WHERE")
+
+actionmap = {
+    "IdentifierList": SQLDMLAction.INSERT,
+    "Comparison": SQLDMLAction.UPDATE
+}    
 
 class SQLEntityFactory:
 
@@ -148,7 +185,25 @@ class SQLEntityFactory:
                 list(filter(func, sql.flatten()))
             )
         )
-        
+
+    @classmethod
+    def getvaluesfrom(cls, func, sql: Statement):
+
+        return list(
+            map(lambda token: token.value,
+                list(filter(func, sql.flatten()))
+            )
+        )
+
+    @classmethod
+    def getactionfrom(cls, func, sql: Statement):        
+
+        return list(
+            map(lambda token: actionmap[type(token.parent).__name__],
+                list(filter(func, sql.flatten()))
+            )
+        )   
+
     @classmethod
     def map_constraints(cls, colname: str, sql: Statement):
 
@@ -162,16 +217,7 @@ class SQLEntityFactory:
 
                 for tkn in reversed(subtokens):
                     if iscolumnname(tkn):
-                        # tkn = i
                         break
-                # idx = sql.token_index(token)
-    
-                # tkn: Token
-                # previdx, tkn = sql.token_prev(idx=idx)
-                
-                # while not isinstance(tkn, Name):
-                #     idx = previdx
-                #     previdx, tkn = sql.token_prev(idx=idx)
 
                 return tkn.value == colname
 
@@ -236,19 +282,6 @@ class SQLEntityFactory:
     @classmethod
     def create_sqltable(cls, sql: Statement):
         return cls.map_sqltable(sql, SQLDDLAction.CREATE, SQLDDLAction.CREATE)
-        # tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
-        # columnnames = cls.getnamesfrom(iscolumnname, sql)
-        # types = cls.gettypesfrom(iscolumntype, sql)
-
-        # zipped = list(zip(columnnames, types))
-
-        # columns = list(map(
-        #         lambda column: SQLColumn(name=column[0], action=SQLDDLAction.CREATE, type=column[1][0], size=column[1][1], constraints=[]),
-        #         zipped
-        #     )
-        # )
-
-        # return SQLTable(name=tablename, action=SQLDDLAction.CREATE, columns=columns)
 
     @classmethod
     def drop_sqltable(cls, sql: Statement):
@@ -330,6 +363,39 @@ class SQLEntityFactory:
 
         return SQLTable(name=tablename, action=SQLDDLAction.DROPCONSTRAINT, columns=columns)
 
+    @classmethod
+    def map_sqldata(cls, sql: Statement, tableaction: SQLDMLAction, columnaction: SQLDMLAction):
+        tablename, *_ = cls.getnamesfrom(is_db_or_tablename, sql)
+        columnnames = cls.getnamesfrom(iscolumnname, sql)
+        data = cls.getvaluesfrom(isdata, sql)
+        dataactions = cls.getactionfrom(isdata, sql)
+        # where = cls.getvaluesfrom(iswhere, sql)
+        # whereactions = [SQLDMLAction.WHERE] * len(where)
+
+        if not columnnames:
+            columnnames = [None] * len(data)        
+
+        zipped = list(zip(columnnames, data, dataactions))
+
+        columns = list(map(
+                lambda column: SQLColumn(name=column[0], action=column[2], type=None, 
+                    size=None, value=str(column[1]).strip("'"), constraints=[]),
+                zipped
+            )
+        )
+        
+        return SQLTable(name=tablename, action=tableaction, columns=columns)
+
+    @classmethod
+    def insert_into_sqltable(cls, sql: Statement):
+
+        return cls.map_sqldata(sql, SQLDMLAction.INSERT, SQLDMLAction.INSERT)
+
+    @classmethod
+    def update_sqltable(cls, sql: Statement):
+        
+        return cls.map_sqldata(sql, SQLDMLAction.UPDATE, SQLDMLAction.UPDATE)
+
 
 SQLProcessor = {
     "CREATEDATABASE": SQLEntityFactory.create_sqldatabase,
@@ -344,7 +410,8 @@ SQLProcessor = {
     "ALTERTABLEDROPCOLUMN": SQLEntityFactory.alter_sqltabledropcolumn,
     "DROPTABLE": SQLEntityFactory.drop_sqltable,
     # "SELECT": func,
-    # "INSERT": func,
-    # "UPDATE": func,
+    "INSERTINTO": SQLEntityFactory.insert_into_sqltable,
+    "UPDATESET": SQLEntityFactory.update_sqltable,
+    "UPDATESETWHERE": SQLEntityFactory.update_sqltable
     # "DELETE": func
 }

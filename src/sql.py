@@ -1,5 +1,3 @@
-from ast import keyword
-from functools import reduce
 from collections import namedtuple
 from enum import Enum
 from typing import List
@@ -34,7 +32,7 @@ class SQLDMLAction(str, Enum):
 
 SQLEntity = namedtuple('SQLEntity', 'name action',)
 SQLDatabase = namedtuple('SQLDatabase', SQLEntity._fields)
-SQLTable = namedtuple('SQLTable', SQLEntity._fields + ('columns',))
+SQLTable = namedtuple('SQLTable', SQLEntity._fields + ('columns', 'where',), defaults=(None,))
 SQLColumn = namedtuple('SQLColumn', SQLEntity._fields + ('type', 'size', 'constraints', 'value'), defaults=(None, None, None))
 
 SQLConstraint = namedtuple('SQLConstraint', SQLEntity._fields)
@@ -63,6 +61,7 @@ def iscolumnname(token: Token):
                 and (isdatatypefollowing(token.parent) or iskeywordpreceding(token.parent, "COLUMN"))
             )
         )
+        and not isinwhere(token)
     )
 
 def isdatatypefollowing(token: Token):
@@ -82,15 +81,11 @@ def iskeyword(token: Token, value: str):
     return token.is_keyword and token.normalized == value
 
 def iskeywordpreceding(token: Token, value: str):
-    # statement: Statement = token.parent
+
     statement: Statement
     tkn: Token
     statement, tkn = findstatement(token, token)
 
-    # t: type = globals()[value.capitalize()]
-    # if isinstance(tkn, t):
-    #     return True
-    # else:
     if tkn.tokens and len(tkn.tokens) > 0 and iskeyword(tkn.tokens[0], value):
         return True
     else:
@@ -125,15 +120,35 @@ def getcolumntype(token: Token):
 def isvaluein(token: Token, keyword: str):
     return (token.ttype in (TType.String.Single, TType.Number.Integer)
         and (isinstance(token.parent, (IdentifierList))
-            or (isinstance(token.parent, (Comparison)) and iskeywordpreceding(token.parent, keyword))
+            or (isinstance(token.parent, (Comparison)) 
+                and iskeywordpreceding(token.parent, keyword) 
+            )
         )
     )
 
 def isdata(token: Token):
     return isvaluein(token, "SET")
 
-def iswhere(token: Token):
-    return isvaluein(token, "WHERE")
+def isinwhere(token: Token):
+    if isinstance(token, (Where)):
+        return True
+
+    if isinstance(token, (Statement)):
+        return False
+
+    return isinwhere(token.parent)
+
+def isandor(token: Token):
+    return ((token.is_keyword and token.normalized in ('WHERE', 'AND', 'OR')) or token.normalized == "(")
+
+def getnexttoken(token: Token):
+    tokens = list(token.parent.tokens)
+    nextidx = tokens.index(token) + 1
+
+    while nextidx < len(tokens) and tokens[nextidx].is_whitespace:
+        nextidx = nextidx + 1
+
+    return tokens[nextidx]
 
 actionmap = {
     "IdentifierList": SQLDMLAction.INSERT,
@@ -196,13 +211,51 @@ class SQLEntityFactory:
         )
 
     @classmethod
+    def mapwherecondition(cls, andortoken: Token):
+        token: Token = getnexttoken(andortoken)
+        if isinstance(token, (Comparison)):
+            filter=[SQLColumn(name=token.left.value, action=SQLDMLAction.WHERE, type=None, size=None, constraints=None, value=str(token.right.value).strip("'"))]
+        elif isinstance(token, (Parenthesis)):
+            filter=cls.getfilterconditions(token.tokens)
+
+        match andortoken.normalized:
+            case "WHERE":
+                return SQLAnd(filter=filter)
+            case "AND":
+                return SQLAnd(filter=filter)
+            case "(":
+                return SQLAnd(filter=filter)
+            case "OR":
+                return SQLOr(filter=filter)
+            case _:
+                return (None, None)
+
+    @classmethod
+    def getfilterconditions(cls, tokens: List[Token]):
+       
+        return list(
+            map(cls.mapwherecondition,
+                list(filter(isandor, tokens))
+            )
+        )
+
+    @classmethod
     def getactionfrom(cls, func, sql: Statement):        
 
         return list(
             map(lambda token: actionmap[type(token.parent).__name__],
                 list(filter(func, sql.flatten()))
             )
-        )   
+        )
+
+    @classmethod
+    def getwhere(cls, sql: Statement):
+        
+        wheretokens: List[Token] = list(filter(lambda token: isinstance(token, (Where)), sql.tokens))
+        if wheretokens:
+            return cls.getfilterconditions(wheretokens[0])
+
+        return None
 
     @classmethod
     def map_constraints(cls, colname: str, sql: Statement):
@@ -272,8 +325,10 @@ class SQLEntityFactory:
                 zipped
             )
         )
+
+        where = cls.getwhere(sql)
         
-        return SQLTable(name=tablename, action=tableaction, columns=columns)
+        return SQLTable(name=tablename, action=tableaction, columns=columns, where=where)
 
     """
     Create/drop table
@@ -369,8 +424,6 @@ class SQLEntityFactory:
         columnnames = cls.getnamesfrom(iscolumnname, sql)
         data = cls.getvaluesfrom(isdata, sql)
         dataactions = cls.getactionfrom(isdata, sql)
-        # where = cls.getvaluesfrom(iswhere, sql)
-        # whereactions = [SQLDMLAction.WHERE] * len(where)
 
         if not columnnames:
             columnnames = [None] * len(data)        
@@ -383,8 +436,10 @@ class SQLEntityFactory:
                 zipped
             )
         )
+
+        where = cls.getwhere(sql)
         
-        return SQLTable(name=tablename, action=tableaction, columns=columns)
+        return SQLTable(name=tablename, action=tableaction, columns=columns, where=where)
 
     @classmethod
     def insert_into_sqltable(cls, sql: Statement):
@@ -395,6 +450,11 @@ class SQLEntityFactory:
     def update_sqltable(cls, sql: Statement):
         
         return cls.map_sqldata(sql, SQLDMLAction.UPDATE, SQLDMLAction.UPDATE)
+
+    @classmethod
+    def selectfrom_sqltable(cls, sql: Statement):
+
+        return cls.map_sqltable(sql, SQLDMLAction.SELECT, SQLDMLAction.SELECT)
 
 
 SQLProcessor = {
@@ -408,10 +468,10 @@ SQLProcessor = {
     "ALTERTABLEADDCONSTRAINTPRIMARYKEY": SQLEntityFactory.alter_sqltableaddconstraintprimarykey,
     "ALTERTABLEDROPCONSTRAINT": SQLEntityFactory.alter_sqltabledropconstraint,
     "ALTERTABLEDROPCOLUMN": SQLEntityFactory.alter_sqltabledropcolumn,
-    "DROPTABLE": SQLEntityFactory.drop_sqltable,
-    # "SELECT": func,
+    "DROPTABLE": SQLEntityFactory.drop_sqltable,    
     "INSERTINTO": SQLEntityFactory.insert_into_sqltable,
     "UPDATESET": SQLEntityFactory.update_sqltable,
-    "UPDATESETWHERE": SQLEntityFactory.update_sqltable
+    "UPDATESETWHERE": SQLEntityFactory.update_sqltable,
+    "SELECTFROM": SQLEntityFactory.selectfrom_sqltable
     # "DELETE": func
 }

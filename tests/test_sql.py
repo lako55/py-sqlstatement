@@ -1,7 +1,7 @@
 from re import S
 import unittest
 from typing import List, Tuple
-from src.sql import SQLColumn, SQLConstraint, SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLDMLAction, SQLEntity, SQLEntityFactory
+from src.sql import SQLColumn, SQLConstraint, SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLDMLAction, SQLEntity, SQLEntityFactory, SQLAnd, SQLOr
 from src.sql import SQLDatabase, SQLTable, SQLDDLAction
 
 class SampleSQL:
@@ -109,10 +109,25 @@ class SampleSQL:
         ("CustomerName", "Cardinal", SQLDMLAction.UPDATE),        
     ]
 
-    UPDATEMULTI = "UPDATE Customers SET ContactName='Juan', CustomerName='Cardinal' WHERE Country='Mexico';"
+    UPDATEMULTI = "UPDATE Customers SET ContactName='Juan', CustomerName='Cardinal' WHERE Country='Mexico' AND City='Juarez' AND ( ContactName='Juan' OR ContactName='Isabela' );"
     UPDATEMULTIEXPECTED = [
         ("ContactName", "Juan", SQLDMLAction.UPDATE),
         ("CustomerName", "Cardinal", SQLDMLAction.UPDATE),        
+    ]    
+
+    SELECTFROM = "SELECT CustomerName, City FROM Customers WHERE Country='Mexico' AND City='Juarez' AND ( ContactName='Juan' OR ContactName='Isabela' );"
+    SELECTFROMEXPECTED = [
+        ("CustomerName", None, None, SQLDMLAction.SELECT, []),
+        ("City", None, None, SQLDMLAction.SELECT, [])
+    ]
+
+    WHEREEXPECTED = [
+        (SQLAnd, [("Country", "Mexico", SQLDMLAction.WHERE)]),
+        (SQLAnd, [("City", "Juarez", SQLDMLAction.WHERE)]),
+        (SQLAnd, [
+            (SQLAnd, [("ContactName", "Juan", SQLDMLAction.WHERE)]), 
+            (SQLOr, [("ContactName", "Isabela", SQLDMLAction.WHERE)]),
+        ]),
     ]
 
 class TestSQLParse(unittest.TestCase):
@@ -211,6 +226,17 @@ class TestSQLParse(unittest.TestCase):
         self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.UPDATE)
         self.assert_lists(self.assert_columndata, sqlentity.columns, SampleSQL.UPDATEMULTIEXPECTED)
 
+        self.assert_where(sqlentity.where, SampleSQL.WHEREEXPECTED)
+
+    def test_selectfrom(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.SELECTFROM)
+
+        self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.SELECT)
+        self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.SELECTFROMEXPECTED)
+
+        self.assert_where(sqlentity.where, SampleSQL.WHEREEXPECTED)
+
+
     def assert_entity(self, sqlentity, type:type, name: str, action: SQLDDLAction):
         self.assertIsInstance(sqlentity, type)
         self.assertEqual(sqlentity.name, name, 'Name check failed.')
@@ -230,6 +256,8 @@ class TestSQLParse(unittest.TestCase):
         self.assertEqual(actual.action, expected[2], 'Column action check failed.')
 
     def assert_lists(self, assertfunc, actual_result: List, expected_result: List):
+        self.assertEqual(len(actual_result), len(expected_result), 'List count check failed.')
+
         zipped = zip(actual_result, expected_result)
         for actual, expected in zipped:
             assertfunc(actual, expected)
@@ -238,3 +266,16 @@ class TestSQLParse(unittest.TestCase):
         self.assertIsInstance(actual, expected[0])
         self.assertEqual(actual.name, expected[1], 'Constraint name check failed.')
         self.assertEqual(actual.action, expected[2], 'Action check failed.')
+
+    def assert_filter(self, actual, expected: Tuple):
+        self.assertIsInstance(actual, expected[0])
+
+        actualfilter = list(filter(lambda i: isinstance(i, (SQLColumn)), actual.filter))
+        actualsubfilter = list(filter(lambda i: isinstance(i, (SQLAnd, SQLOr)), actual.filter))
+        if actualfilter:
+            self.assert_lists(self.assert_columndata, actualfilter, expected[1])
+        elif actualsubfilter:
+            self.assert_lists(self.assert_filter, actualsubfilter, expected[1])
+
+    def assert_where(self, actual, expected: Tuple):
+        self.assert_lists(self.assert_filter, actual, expected)

@@ -1,8 +1,9 @@
-from re import S
 import unittest
 from typing import List, Tuple
-from src.sql import SQLColumn, SQLConstraint, SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLDMLAction, SQLEntity, SQLEntityFactory, SQLAnd, SQLOr
-from src.sql import SQLDatabase, SQLTable, SQLDDLAction
+from src.sql import SQLEntityFactory
+from src.sqlentities import (SQLDatabase, SQLTable, SQLColumn, SQLConstraint,
+    SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLAnd, SQLOr)
+from src.sqlactions import SQLDDLAction, SQLDMLAction
 
 class SampleSQL:
 
@@ -236,9 +237,8 @@ class TestSQLParse(unittest.TestCase):
 
         self.assert_where(sqlentity.where, SampleSQL.WHEREEXPECTED)
 
-
-    def assert_entity(self, sqlentity, type:type, name: str, action: SQLDDLAction):
-        self.assertIsInstance(sqlentity, type)
+    def assert_entity(self, sqlentity, enttype:type, name: str, action: SQLDDLAction):
+        self.assertIsInstance(sqlentity, enttype)
         self.assertEqual(sqlentity.name, name, 'Name check failed.')
         self.assertEqual(sqlentity.action, action, 'Entity action check failed.')
 
@@ -279,3 +279,7 @@ class TestSQLParse(unittest.TestCase):
 
     def assert_where(self, actual, expected: Tuple):
         self.assert_lists(self.assert_filter, actual, expected)
+
+
+if __name__ == '__main__':
+    unittest.main()

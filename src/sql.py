@@ -334,6 +334,11 @@ class SQLEntityFactory:
         """Analyzes the SELECT FROM sql statement."""
         return cls.__map_sqltable(sql, SQLDMLAction.SELECT, SQLDMLAction.SELECT)
 
+    @classmethod
+    def deletefrom_sqltable(cls, sql: Statement):
+        """Analyzes the DELETE FROM sql statement."""
+        return cls.__map_sqltable(sql, SQLDMLAction.DELETE, SQLDMLAction.DELETE)
+
 
 SQLProcessor = {
     "CREATEDATABASE": SQLEntityFactory.create_sqldatabase,
@@ -350,6 +355,6 @@ SQLProcessor = {
     "INSERTINTO": SQLEntityFactory.insert_into_sqltable,
     "UPDATESET": SQLEntityFactory.update_sqltable,
     "UPDATESETWHERE": SQLEntityFactory.update_sqltable,
-    "SELECTFROM": SQLEntityFactory.selectfrom_sqltable
-    # "DELETE": func
+    "SELECTFROM": SQLEntityFactory.selectfrom_sqltable,
+    "DELETEFROM": SQLEntityFactory.deletefrom_sqltable
 }

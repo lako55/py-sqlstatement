@@ -131,6 +131,11 @@ class SampleSQL:
         ]),
     ]
 
+    DELETEFROM = "DELETE FROM Customers WHERE CustomerName='Alfreds Futterkiste';"
+    DELETEWHEREEXPECTED = [
+        (SQLAnd, [("CustomerName", "Alfreds Futterkiste", SQLDMLAction.WHERE)]),
+    ]
+
 class TestSQLParse(unittest.TestCase):
 
     def test_parsecreatedb(self):
@@ -236,6 +241,13 @@ class TestSQLParse(unittest.TestCase):
         self.assert_lists(self.assert_column, sqlentity.columns, SampleSQL.SELECTFROMEXPECTED)
 
         self.assert_where(sqlentity.where, SampleSQL.WHEREEXPECTED)
+
+    def test_deletefrom(self):
+        sqlentity: SQLTable = SQLEntityFactory.create_entity(SampleSQL.DELETEFROM)
+
+        self.assert_entity(sqlentity, SQLTable, "Customers", SQLDMLAction.DELETE)        
+
+        self.assert_where(sqlentity.where, SampleSQL.DELETEWHEREEXPECTED)
 
     def assert_entity(self, sqlentity, enttype:type, name: str, action: SQLDDLAction):
         self.assertIsInstance(sqlentity, enttype)

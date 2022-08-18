@@ -50,7 +50,7 @@ SQLTable(
             filter=[
                 SQLColumn(
                     name='lastname', 
-                    action=<SQLDMLAction.WHERE: 'WHERE'>, 
+                    action=<SQLDMLAction.WHEREEQUAL: 'WHEREEQUAL'>, 
                     type=None, 
                     size=None, 
                     constraints=None, 

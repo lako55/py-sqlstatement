@@ -25,8 +25,10 @@ class SQLDMLAction(str, Enum):
     Enum listting SQL DML actions.
     """
 
-    SELECT = "SELECT"
-    INSERT = "INSERT"
-    UPDATE = "UPDATE"
-    DELETE = "DELETE"
-    WHERE  = "WHERE"
+    SELECT      = "SELECT"
+    INSERT      = "INSERT"
+    UPDATE      = "UPDATE"
+    DELETE      = "DELETE"
+    WHERE       = "WHERE"
+    WHEREEQUAL  = "WHEREEQUAL"
+    WHERELIKE   = "WHERELIKE"

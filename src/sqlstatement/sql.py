@@ -5,9 +5,11 @@
 """Core of the SQLStatement functionality. SQLEntityFactory handles parsing and 
 analysis of the sql statement string."""
 
+from io import UnsupportedOperation
 from typing import List
 from sqlparse import parse
 from sqlparse.sql import Statement, Token, Parenthesis, Comparison, Where
+import sqlparse.tokens as TType
 
 from .sqlentities import (SQLDatabase, SQLTable, SQLColumn, SQLConstraint, SQLConstraintUnique, 
     SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLAnd, SQLOr)
@@ -87,11 +89,27 @@ class SQLEntityFactory:
         )
 
     @classmethod
+    def __getwhereconditionoperator(cls, token: Token):
+
+        operators = list(filter(lambda t: t.ttype == TType.Operator.Comparison, token.tokens))
+        if operators:
+            match operators[0].normalized:
+                case "=":
+                    return SQLDMLAction.WHEREEQUAL
+                case "LIKE":
+                    return SQLDMLAction.WHERELIKE
+                case _:
+                    raise UnsupportedOperation()
+
+        return None
+
+    @classmethod
     def __mapwherecondition(cls, andortoken: Token):
 
         token: Token = sqlparseutils.getnexttoken(andortoken)
         if isinstance(token, (Comparison)):
-            condition=[SQLColumn(name=token.left.value, action=SQLDMLAction.WHERE,
+            condition=[SQLColumn(name=token.left.value,
+                action=cls.__getwhereconditionoperator(token),
                 type=None, size=None, constraints=None, value=str(token.right.value).strip("'"))
             ]
         elif isinstance(token, (Parenthesis)):

@@ -110,30 +110,30 @@ class SampleSQL:
         ("CustomerName", "Cardinal", SQLDMLAction.UPDATE),        
     ]
 
-    UPDATEMULTI = "UPDATE Customers SET ContactName='Juan', CustomerName='Cardinal' WHERE Country='Mexico' AND City='Juarez' AND ( ContactName='Juan' OR ContactName='Isabela' );"
+    UPDATEMULTI = "UPDATE Customers SET ContactName='Juan', CustomerName='Cardinal' WHERE Country='Mexico' AND City LIKE '%Monterrey%' AND ( ContactName='Juan' OR ContactName='Isabela' );"
     UPDATEMULTIEXPECTED = [
         ("ContactName", "Juan", SQLDMLAction.UPDATE),
         ("CustomerName", "Cardinal", SQLDMLAction.UPDATE),        
     ]    
 
-    SELECTFROM = "SELECT CustomerName, City FROM Customers WHERE Country='Mexico' AND City='Juarez' AND ( ContactName='Juan' OR ContactName='Isabela' );"
+    SELECTFROM = "SELECT CustomerName, City FROM Customers WHERE Country='Mexico' AND City LIKE '%Monterrey%' AND ( ContactName='Juan' OR ContactName='Isabela' );"
     SELECTFROMEXPECTED = [
         ("CustomerName", None, None, SQLDMLAction.SELECT, []),
         ("City", None, None, SQLDMLAction.SELECT, [])
     ]
 
     WHEREEXPECTED = [
-        (SQLAnd, [("Country", "Mexico", SQLDMLAction.WHERE)]),
-        (SQLAnd, [("City", "Juarez", SQLDMLAction.WHERE)]),
+        (SQLAnd, [("Country", "Mexico", SQLDMLAction.WHEREEQUAL)]),
+        (SQLAnd, [("City", "%Monterrey%", SQLDMLAction.WHERELIKE)]),
         (SQLAnd, [
-            (SQLAnd, [("ContactName", "Juan", SQLDMLAction.WHERE)]), 
-            (SQLOr, [("ContactName", "Isabela", SQLDMLAction.WHERE)]),
+            (SQLAnd, [("ContactName", "Juan", SQLDMLAction.WHEREEQUAL)]), 
+            (SQLOr, [("ContactName", "Isabela", SQLDMLAction.WHEREEQUAL)]),
         ]),
     ]
 
     DELETEFROM = "DELETE FROM Customers WHERE CustomerName='Alfreds Futterkiste';"
     DELETEWHEREEXPECTED = [
-        (SQLAnd, [("CustomerName", "Alfreds Futterkiste", SQLDMLAction.WHERE)]),
+        (SQLAnd, [("CustomerName", "Alfreds Futterkiste", SQLDMLAction.WHEREEQUAL)]),
     ]
 
 class TestSQLParse(unittest.TestCase):

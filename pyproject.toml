@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sqlstatement"
+version = "0.0.1"
+authors = [
+  { name="lako55", email="zosa.project@gmail.com" },
+]
+description = "Python library for parsing the sql statements into easy to use metadata about sql operation, columns, filtering conditions and more. Visit the project at https://github.com/lako55/py-sqlstatement for more details."
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",    
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: SQL",
+    "Topic :: Software Development :: Libraries",
+]
+keywords = [
+    "parser",
+    "parsing",
+    "sql",
+    "parsing-library",
+]
+dependencies = [
+    "sqlparse >=0.4.2", 
+]
+
+[project.urls]
+"Homepage" = "https://github.com/lako55/py-sqlstatement"
+"Bug Tracker" = "https://github.com/lako55/py-sqlstatement"

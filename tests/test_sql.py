@@ -1,9 +1,9 @@
 import unittest
 from typing import List, Tuple
-from src.sql import SQLEntityFactory
-from src.sqlentities import (SQLDatabase, SQLTable, SQLColumn, SQLConstraint,
+from src.sqlstatement.sql import SQLEntityFactory
+from src.sqlstatement.sqlentities import (SQLDatabase, SQLTable, SQLColumn, SQLConstraint,
     SQLConstraintNotNull, SQLConstraintPrimaryKey, SQLConstraintUnique, SQLAnd, SQLOr)
-from src.sqlactions import SQLDDLAction, SQLDMLAction
+from src.sqlstatement.sqlactions import SQLDDLAction, SQLDMLAction
 
 class SampleSQL:
 
